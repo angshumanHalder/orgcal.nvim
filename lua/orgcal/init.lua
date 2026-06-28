@@ -2,6 +2,39 @@ local M = {}
 
 local config = { dir = "~/org" }
 local sync_timer = nil
+local poll_timer = nil
+
+local function has_upcoming_in_hour()
+	local dir = vim.fn.expand(config.dir)
+	local now = os.time()
+	local horizon = now + 3600
+	local files = vim.fn.globpath(dir, "**/*.org", false, true)
+	for _, file in ipairs(files) do
+		local f = io.open(file, "r")
+		if not f then goto continue end
+		local content = f:read("*all")
+		f:close()
+		for y, mo, d, h, mi in content:gmatch("SCHEDULED:%s+<(%d%d%d%d)-(%d%d)-(%d%d)%s+%a+%s+(%d%d):(%d%d)") do
+			local t = os.time({ year = tonumber(y), month = tonumber(mo), day = tonumber(d),
+				hour = tonumber(h), min = tonumber(mi), sec = 0 })
+			if t >= now and t <= horizon then return true end
+		end
+		::continue::
+	end
+	return false
+end
+
+local function schedule_poll()
+	if poll_timer then poll_timer:stop(); poll_timer:close(); poll_timer = nil end
+	local interval = has_upcoming_in_hour() and (5 * 60 * 1000) or (15 * 60 * 1000)
+	poll_timer = vim.uv.new_timer()
+	poll_timer:start(interval, 0, vim.schedule_wrap(function()
+		run("sync", function()
+			check_conflicts()
+			schedule_poll()
+		end)
+	end))
+end
 
 local function run(subcmd, cb)
 	local cmd = { "orgcal", subcmd, "--dir", config.dir }
@@ -187,6 +220,8 @@ end
 
 function M.setup(opts)
 	config = vim.tbl_deep_extend("force", config, opts or {})
+
+	schedule_poll()
 
 	vim.api.nvim_create_user_command("OrgCalAuth", function()
 		vim.fn.jobstart({ "orgcal", "auth" }, {
