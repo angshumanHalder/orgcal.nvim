@@ -3,6 +3,7 @@ local M = {}
 local config = { dir = "~/org" }
 local sync_timer = nil
 local poll_timer = nil
+local resolve_ui  -- forward declaration
 
 local function has_upcoming_in_hour()
 	local dir = vim.fn.expand(config.dir)
@@ -80,7 +81,7 @@ local function check_conflicts(output)
 			vim.notify(string.format("orgcal: %d event(s) deleted from GCal", deleted), vim.log.levels.INFO)
 		end
 		if conflicts_count > 0 then
-			vim.notify(string.format("orgcal: %d conflict(s) — :OrgCalResolve", conflicts_count), vim.log.levels.WARN)
+			resolve_ui()
 			return
 		end
 	end
@@ -96,9 +97,7 @@ local function check_conflicts(output)
 	for _, c in ipairs(cs) do
 		if not c.resolution or c.resolution == "" then n = n + 1 end
 	end
-	if n > 0 then
-		vim.notify(string.format("orgcal: %d conflict(s) — :OrgCalResolve", n), vim.log.levels.WARN)
-	end
+	if n > 0 then resolve_ui() end
 end
 
 local function schedule_sync()
@@ -114,7 +113,7 @@ local function schedule_sync()
 	end))
 end
 
-local function resolve_ui()
+resolve_ui = function()
 	local path = vim.fn.expand("~/.local/share/orgcal/conflicts.json")
 	local f = io.open(path, "r")
 	if not f then
