@@ -147,7 +147,7 @@ resolve_ui = function()
 	local function render()
 		local c = pending[idx]
 		local lines = { string.format("  Conflict %d / %d: %s", idx, #pending, c.title), "" }
-		for _, field in ipairs(c.fields or {}) do
+		for _, field in ipairs(type(c.fields) == "table" and c.fields or {}) do
 			table.insert(lines, string.format("  %-12s", field.name))
 			table.insert(lines, string.format("    local:  %s", field["local"]))
 			table.insert(lines, string.format("    gcal:   %s", field.remote))
