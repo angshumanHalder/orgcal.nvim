@@ -29,14 +29,14 @@ local function schedule_poll()
 	local interval = has_upcoming_in_hour() and (5 * 60 * 1000) or (15 * 60 * 1000)
 	poll_timer = vim.uv.new_timer()
 	poll_timer:start(interval, 0, vim.schedule_wrap(function()
-		run("sync", function()
-			check_conflicts()
+		run("sync", function(out)
+			check_conflicts(out)
 			schedule_poll()
-		end)
+		end, true)
 	end))
 end
 
-local function run(subcmd, cb)
+local function run(subcmd, cb, silent)
 	local cmd = { "orgcal", subcmd, "--dir", config.dir }
 	local output = {}
 	vim.fn.jobstart(cmd, {
@@ -53,16 +53,38 @@ local function run(subcmd, cb)
 		end,
 		on_exit = function(_, code)
 			if code == 0 then
-				local msg = #output > 0 and table.concat(output, " ") or subcmd .. " done"
-				vim.notify("orgcal: " .. msg, vim.log.levels.INFO)
-				if cb then cb() end
+				local msg = table.concat(output, " ")
+				if not silent then
+					vim.notify("orgcal: " .. (msg ~= "" and msg or subcmd .. " done"), vim.log.levels.INFO)
+				end
+				if cb then cb(msg) end
 				vim.schedule(function() vim.cmd("silent! checktime") end)
 			end
 		end,
 	})
 end
 
-local function check_conflicts()
+local function check_conflicts(output)
+	if output and output ~= "" then
+		local imported = tonumber(output:match("Imported:%s*(%d+)")) or 0
+		local exported = tonumber(output:match("Exported:%s*(%d+)")) or 0
+		local deleted  = tonumber(output:match("Deleted:%s*(%d+)"))  or 0
+		local conflicts_count = tonumber(output:match("Conflicts:%s*(%d+)")) or 0
+		if imported > 0 then
+			vim.notify(string.format("orgcal: %d new event(s) from GCal — reopen agenda", imported), vim.log.levels.INFO)
+		end
+		if exported > 0 then
+			vim.notify(string.format("orgcal: %d todo(s) pushed to GCal", exported), vim.log.levels.INFO)
+		end
+		if deleted > 0 then
+			vim.notify(string.format("orgcal: %d event(s) deleted from GCal", deleted), vim.log.levels.INFO)
+		end
+		if conflicts_count > 0 then
+			vim.notify(string.format("orgcal: %d conflict(s) — :OrgCalResolve", conflicts_count), vim.log.levels.WARN)
+			return
+		end
+	end
+	-- fallback: read conflicts.json directly
 	local path = vim.fn.expand("~/.local/share/orgcal/conflicts.json")
 	local f = io.open(path, "r")
 	if not f then return end
@@ -170,7 +192,7 @@ local function resolve_ui()
 					vim.notify("orgcal: " .. (msg ~= "" and msg or "conflicts resolved") .. " — reopen agenda", vim.log.levels.INFO)
 					vim.schedule(function()
 						vim.cmd("silent! checktime")
-						run("sync", check_conflicts)
+						run("sync", check_conflicts, true)
 					end)
 				else
 					vim.notify("orgcal: resolve failed — " .. msg, vim.log.levels.ERROR)
